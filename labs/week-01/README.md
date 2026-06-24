@@ -123,7 +123,7 @@ Navigate to [http://localhost:80](http://localhost:80) and log in with:
 
 ```
 username: jsmith
-password: password123
+password: passw  ord123
 ```
 
 ---
@@ -137,14 +137,14 @@ Before using any tools, manually visit every page available to you after logging
 
 Navigate to each page listed below. For each one, copy the full URL from the address bar (including anything after the `?`), note every input field present, and record what data the page displays.
 
-| Page | Full URL | Input fields | Data displayed | Anything unusual? |
-|------|----------|--------------|----------------|-------------------|
-| Home | | | | |
-| Grades | | | | |
-| Enrollment | | | | |
-| Messages | | | | |
-| Advising Notes | | | | |
-| Documents | | | | |
+| Page           | Full URL                                | Input fields | Data displayed | Anything unusual? |
+|----------------|-----------------------------------------|--------------|----------------|-------------------|
+| Home           |http://localhost/                        |Different tab's icons |top bar with tabs, important tabs as icons |Not all tabs have icons |
+| Grades         |http://localhost/grades                  |Search bar |Student grade details for different classes |Cannot find anything unusual|
+| Enrollment     |http://localhost/enrollment              |Course and quarter selection, search bar, drop button |Courses list(enrolled as well as available) |No need for search course by name option |
+| Messages       |http://localhost/messages                |compose message fields |The details of the recieved and sent messages |message displayed for indox but not sent |
+| Advising Notes |http://localhost/messages/advising-notes |None |Advisor name, note to student, date |First column title should be advisor not student |
+| Documents      |http://localhost/documents               |Upload document fields |List of uploaded documents |Cannot find anything unusual|
 
 **As you explore, pay attention to:**
 
@@ -161,6 +161,12 @@ Navigate to each page listed below. For each one, copy the full URL from the add
 Every time a web server responds to a request, it includes a set of headers before the actual content. These headers are instructions from the server to the browser — they specify things like how long to cache a page, what type of content follows, and what cookies to store. Developers frequently leave headers enabled that advertise the server software name, version number, and framework in use. For an attacker, this is free intelligence: knowing a server runs nginx 1.21.3 or Flask 2.3.2 immediately narrows down which known vulnerabilities might apply, without having to probe anything.
 
 Open Developer Tools and go to the **Network** tab. Reload the page. Click the main document request (the first one in the list). Under **Response Headers**, record every header you see.
+
+Connection: keep alive
+Content-length: 4847
+Content-type: text/html; charset=utf-8
+Date: Wed, 24 Jun 2026 16:41:32 GMT
+Server: nginx/1.31.2
 
 Pay particular attention to:
 - `Server`
@@ -181,7 +187,9 @@ In Developer Tools, open the **Application** tab. Under **Storage**, expand **Co
 
 | Name | Value | HttpOnly | Secure | SameSite | Expires |
 |------|-------|----------|--------|----------|---------|
-| | | | | | |
+|authenticated |jsmith |false |false | |Session |
+|role |student |false |false | |Session |
+|user_id |3 |false |false | |Session |
 
 #### Part B — Examine what the values contain
 
