@@ -123,7 +123,7 @@ Navigate to [http://localhost:80](http://localhost:80) and log in with:
 
 ```
 username: jsmith
-password: passw  ord123
+password: password123
 ```
 
 ---
@@ -146,7 +146,7 @@ Navigate to each page listed below. For each one, copy the full URL from the add
 | Advising Notes |http://localhost/messages/advising-notes |None |Advisor name, note to student, date |First column title should be advisor not student |
 | Documents      |http://localhost/documents               |Upload document fields |List of uploaded documents |Cannot find anything unusual|
 
-**As you explore, pay attention to:**
+**As you explore, pay attention to:**  
 
 - **ID values in the URL.** Does the address bar show something like `?student_id=3` when you view your grades? If a number in the URL appears to identify you, record it. Think about what it represents, and whether changing it might do anything.
 - **Search and filter fields.** Any field that accepts text and sends it to the server is worth noting carefully.
@@ -187,9 +187,9 @@ In Developer Tools, open the **Application** tab. Under **Storage**, expand **Co
 
 | Name | Value | HttpOnly | Secure | SameSite | Expires |
 |------|-------|----------|--------|----------|---------|
-|authenticated |jsmith |false |false | |Session |
-|role |student |false |false | |Session |
-|user_id |3 |false |false | |Session |
+|authenticated |jsmith |False |F  alse |Blank |Session |
+|role |student |False |False |Blank |Session |
+|user_id |3 |False |False |Blank |Session |
 
 #### Part B — Examine what the values contain
 
@@ -202,6 +202,7 @@ Record what you find. Consider: the server reads these values back on every requ
 Double-click the **value** field of the `role` cookie in the Application panel. Change the value from `student` to `admin`. Reload the page and navigate to `/admin/users`.
 
 Record exactly what happens. Whether access is granted or denied, both outcomes tell you something about how the application validates identity. Document your finding.
+A) Here I am able to see the list of users/accounts and their roles
 
 > Restore the original `role` cookie value before continuing.
 
@@ -221,6 +222,13 @@ Right-click each page and select **View Page Source**. Search for:
 
 Record at least five findings.
 
+Comment(All pages): <!-- DB: huskyhub-db:3306 | Backend: Flask/Python -->
+Comment(All pages):   <!-- App version: 1.0.0 | Environment: development | Build: 2024-01-15 -->
+Hidden field(Grades page): <input type="hidden" name="student_id" value="3">
+Hidden field(Enrollment page): <input type="hidden" name="enrollment_id" value="1">
+                               <input type="hidden" name="enrollment_id" value="2">
+Hardcoded Username and role(all pages in nav bar): Welcome, jsmith (student)
+
 ---
 
 ### 6. Map the Attack Surface
@@ -229,6 +237,27 @@ Record at least five findings.
 An attack surface is the complete set of points where an attacker could attempt to interact with a system in an unauthorized way. For a web application, this includes every URL that accepts input, every form field that processes data, every file upload endpoint, and every external resource loaded from a CDN or third party. The more of these entry points exist, the more opportunities an attacker has. Mapping the attack surface is not an attack itself — it is the systematic inventory that makes everything else possible. A skilled attacker maps before they move.
 
 Compile a complete list of every URL, form, input field, file upload point, and external resource (CDN scripts, stylesheets) you can find across the entire application.
+
+URL/endpoint | HTTP Method | Accepts Input(Yes/No) | Notes
+
+---------------------------|----------|-----|------------------------------------------------
+/                          | GET      | No  | Home dashboard
+/login                     | GET/POST | Yes | username + password fields, no CSRF token
+/register                  | GET      | No  | New endpoint found in login page source
+/logout                    | GET      | No  | Ends user session
+/grades                    | GET      | Yes | student_id and search as GET params — IDOR risk
+/enrollment                | GET      | Yes | search as GET param
+/enrollment/add            | POST     | Yes | course_id, quarter fields
+/enrollment/drop           | POST     | Yes | enrollment_id hidden field — IDOR risk
+/messages                  | GET      | No  | Inbox and sent view
+/messages/send             | POST     | Yes | recipient_id, subject, body — HTML allowed, XSS risk
+/messages/advising-notes   | GET      | No  | Advising notes view
+/documents                 | GET      | No  | Document list view
+/documents/upload          | POST     | Yes | File upload, no visible file type restriction
+/chatbot                   | GET/POST | Yes | textarea input — prompt injection risk, debug comment in source
+/static/css/style.css      | GET      | No  | Local static file, reveals path structure
+cdn.jsdelivr.net bootstrap CSS | GET  | No  | External CDN, no SRI hash
+cdn.jsdelivr.net bootstrap JS  | GET  | No  | External CDN, no SRI hash
 
 Format this as a table with columns: URL/Endpoint, HTTP Method, Accepts Input (yes/no), Notes.
 
@@ -250,6 +279,8 @@ password: alexpass
 
 Explore the application and note any differences from the `jsmith` account in what you can see or do. Pay attention to the cookie values for this account as well.
 
+I think most of the information and access is same for both the students(looking at cookies confirmed that they both have the role designated as student).
+
 Log out again and log in with an advisor account:
 
 ```
@@ -259,7 +290,11 @@ password: advisor123
 
 Compare what this account can access with what the student accounts could access. Note any differences in available pages, data, or actions.
 
+The advising notes tab is different for an advisor compared to a student. The advisor is able do more than just view on the tab. In the cookies we can see that the assigned role is advisor.
+
 Consider whether the data each account sees appears to be correctly scoped — and whether there are any ways to reach information that does not seem intended for that account.
+
+It doesn't make sense for the advisor to be able to enroll in classes or need the AI Academic Advisor tab. Same applies for the enrollment and  grades tab. It would make more sense if these tabs were tweeked for the advisor to be able to view students' data.
 
 ---
 
@@ -269,13 +304,30 @@ Answer each question in your lab report under **Section 3: Class Principles**.
 
 **Q1.** During your exploration, what were two or three things you noticed about the application that surprised you or felt worth paying attention to? You don't need to know exactly why they matter yet — describe what you observed and take a guess at why an attacker might find it interesting.
 
+I didn't expect to find the dabase i  details to be in the HTML comments. This gives an attacker key information needed to hack. The second one was the similarity between the advisor and student experience. The advisor should have different tabs compared to a student. Also I feel like the security levels of a advisor's account should also be higher. The cookie values found on inspecting are worrying as well because anyone can change the role, name or student id number in it since its directly visible.
+
 **Q2.** List the cookies the application sets and note which security flags are missing. Pick one missing flag and explain, in your own words, what you think could go wrong without it.
+
+| Name | Value | HttpOnly | Secure | SameSite | Expires |
+|------|-------|----------|--------|----------|---------|
+|authenticated |jsmith |false |false |Blank |Session |
+|role |student |false |false |Blank |Session |
+|user_id |3 |false |false |Blank |Session |
+
+From what I have read and understood it is an important point to notice the missing HttpOnly missing flag. This makes it possible to enter and run scripts through the input fields.
+
 
 **Q3.** In Step 4, you looked at the values stored in the cookies and tried changing one. What did the cookie values tell you about how the application tracks who you are? What happened when you modified the `role` cookie, and what does that suggest about how the application makes decisions?
 
+When I tried to change the role from student to advisor the student for the same access as an advisor. Being able to give oneself any role/access level they want just by going into the cookies section is really unsafe. This can also help gain access to other student's information just by knowing their authenticated(name/username) and thier id number. The application probably uses the values provided to it to identify a user and their access levels.
+
 **Q4.** What assumptions does this application appear to make about who is using it? Describe at least two and explain what might happen if those assumptions turned out to be wrong.
 
+The app is firstly assuming that a student will only log into their own account. That is why all the access information is lying around in the page source and the cookie is storing important information that can just be manipulated. It is also assuming that the user will use the application in the intended way. There are input fields that can be used to hack or manipulate the data on this application very easily.
+
 **Q5.** Referencing the Week 1 Thursday lecture on AI Risk, identify at least one AI-related risk that you think might be present in an application like HuskyHub if it included an AI assistant. Explain your reasoning.
+
+One risk is that the AI might reveal sensitive information if heavily prompted to do so. If the boundries for the AI aren't set up correctly there can be a huge loophole in the security system for the application.
 
 ---
 
