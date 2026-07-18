@@ -84,24 +84,24 @@ Open your terminal and run the commands for your platform.
 
 **macOS / Linux (Terminal):**
 ```bash
-git clone https://github.com/andy-herman/huskyhub.git
-cd huskyhub
+git clone https://github.com/Coltigo/huskyhub-su26.git
+cd huskyhub-su26
 cp .env.example .env
 docker compose up --build
 ```
 
 **Windows (Git Bash — recommended):**
 ```bash
-git clone https://github.com/andy-herman/huskyhub.git
-cd huskyhub
+git clone https://github.com/Coltigo/huskyhub-su26.git
+cd huskyhub-su26
 cp .env.example .env
 docker compose up --build
 ```
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/andy-herman/huskyhub.git
-cd huskyhub
+git clone https://github.com/Coltigo/huskyhub-su26.git
+cd huskyhub-su26
 Copy-Item .env.example .env
 docker compose up --build
 ```
