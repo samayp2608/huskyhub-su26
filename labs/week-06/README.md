@@ -1,4 +1,4 @@
-# Week 7 Lab — SQL Injection and OWASP Top 10
+# Week 6 Lab — SQL Injection and OWASP Top 10
 
 **Lecture:** Threat Modeling, STRIDE, and DREAD; OWASP Top 10 and SQL Injection
 
