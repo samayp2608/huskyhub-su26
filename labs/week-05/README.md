@@ -1,12 +1,12 @@
-# Week 5 Lab — Authentication: Sessions, Cookies, and Brute Force
+# Week 5 Lab — Authorization, IDOR, and Offensive Tools
 
-**Lecture:** Sessions and Authentication
+**Lecture:** Authorization and Permissions; Hackers, Offensive Techniques, and Malware
 
 ---
 
 ## Overview
 
-HuskyHub has three deliberate authentication failures: the session token is not rotated after login (session fixation), the authentication cookies contain plaintext identity values and are trusted server-side without cryptographic validation (cookie forgery), and there is no account lockout mechanism (brute force). This week you exploit each, then remediate each. The midterm is Thursday — the lab is scoped so exploitation can be completed in the lab session and remediation taken home.
+This week the focus shifts from who you are (authentication) to what you are allowed to do (authorization). HuskyHub has broken access controls at multiple points: students can view other students' grades by changing a URL parameter, advisor-only routes have no server-side role check, and the admin routes trust a cookie value rather than verifying role server-side. You will exploit these manually, then use Burp Suite to automate your findings.
 
 ---
 
@@ -14,227 +14,176 @@ HuskyHub has three deliberate authentication failures: the session token is not 
 
 | Tool | Purpose |
 |------|---------|
-| Browser Developer Tools | Inspect and manually modify cookies |
-| Python requests library | Script a brute force login attempt |
-| Flask sessions and itsdangerous | Implement cryptographically signed sessions |
-| Terminal | Run scripts |
+| Browser Developer Tools | Manually manipulate URL parameters |
+| Burp Suite Community Edition | Intercept, modify, and replay HTTP requests |
+| curl | Test authorization checks from the command line |
+| Python requests | Automate IDOR enumeration |
 
-### Platform Notes
+**Download Burp Suite Community:** [portswigger.net/burp/communitydownload](https://portswigger.net/burp/communitydownload)
 
-**Python:**
-- macOS and Linux use `python3` and `pip3`.
-- Windows uses `python` and `pip` (if Python was installed from python.org with PATH enabled).
-- If you are unsure which command works, run `python --version` and `python3 --version` in your terminal and use whichever responds.
+Burp Suite is available for macOS, Windows, and Linux. Download the installer for your platform and follow the standard installation steps. No license is required for Community Edition.
 
-**Installing the requests library:**
+### Platform Notes for curl
 
-```bash
-# macOS / Linux
-pip3 install requests
+**macOS / Linux:** `curl` is pre-installed. Use it directly in Terminal.
 
-# Windows
-pip install requests
-```
+**Windows:** `curl` is available in PowerShell 5.1+ and Windows 10+. If you encounter issues, use Git Bash where `curl` behaves identically to macOS/Linux, or install it via `winget install curl.curl`.
 
 ---
 
 ## Steps
 
-### 1. Inspect the Authentication Cookies
+### 1. Map Authorization-Sensitive Endpoints
 
-**What the current trust model is and why it fails:**
-HuskyHub currently sets cookies like `role=student` and `user_id=3` that the server reads back on every subsequent request to determine who you are and what you can do. The fundamental flaw is that cookies are stored in the browser, and the browser will faithfully send back whatever value is stored — including a value you manually changed. The server has no way to detect that the value was tampered with unless it cryptographically signs it. A cookie that says `role=admin` looks identical to the server whether a real admin set it or you typed it yourself in Developer Tools.
+**What makes an endpoint "authorization-sensitive":**
+An authorization-sensitive endpoint is any URL where the data returned or the action performed should be restricted to a specific user or role. The clearest indicator is an ID parameter in the URL or request body — `student_id`, `user_id`, `doc_id`. These IDs are object references: they tell the server which database record to retrieve. If the server retrieves whichever record the client requests without first confirming the client owns or has permission to access that record, every other user's data is one URL edit away.
 
-Log in as `jsmith`. Open Developer Tools → **Application → Cookies**. Record the name, value, and flags for every cookie.
-
-Answer: does any cookie contain a value that directly identifies the user, their role, or their database ID in a readable format?
+Log in as `jsmith`. Compile a list of every URL containing an ID parameter: `student_id`, `user_id`, `doc_id`, `enrollment_id`, etc. This is your IDOR candidate list.
 
 ---
 
-### 2. Attempt Cookie Forgery
+### 2. Exploit IDOR on Grades
 
-**What "server-side check" means and what HuskyHub currently does instead:**
-A server-side check means the server independently verifies a claim rather than accepting it from the client. For role-based access control, a server-side check would look up the user's role from the database using their authenticated identity — not read it from a cookie the user controls. HuskyHub skips this entirely: it reads `request.cookies.get('role')` and takes that value at face value. There is no database query, no signature verification, no cross-reference. You are about to demonstrate exactly what this enables.
+**What IDOR is and why it is distinct from other access control failures:**
+Insecure Direct Object Reference (IDOR) occurs when the application exposes a direct reference to an internal object (a database record, a file) in a way the user can manipulate, without verifying authorization before serving the object. The difference between IDOR and a broken login is the *level* at which the control fails: the login check verified you are a valid user, but no check verifies that this valid user is the owner of record number 5. The server trusts the number in the URL.
 
-Manually edit the `role` cookie value from `student` to `admin` in Developer Tools. Reload the page. Navigate to `/admin/users`.
+Navigate to your own grades:
+```
+http://localhost/grades?student_id=3
+```
 
-Document:
-- Whether the application accepted the forged cookie
-- What you can now access
-- What server-side check, if any, was performed
+Now change the `student_id` to each value from 3 to 7. For each, record:
+- Whether the request succeeds
+- Whose record was returned
+- What grade data is exposed
 
----
-
-### 3. Attempt Cookie Forgery — User Impersonation
-
-Look up another user's `user_id` from the grades page (`/grades?student_id=X`). Change your `user_id` cookie to that value. Navigate to `/grades`. Document what you see.
-
----
-
-### 4. Test for Session Fixation
-
-**What session fixation is and what it enables:**
-Session fixation is an attack where the attacker forces a known session token onto the victim before the victim authenticates, then waits for the victim to log in. If the server does not generate a new session token upon successful authentication, the attacker's pre-known token becomes a valid authenticated session. The attacker never needed to steal the token — they established it before authentication occurred. The fix is simple: call `session.clear()` immediately after verifying credentials, which forces a new session token to be issued for the authenticated session.
-
-Record your session-related cookie values **before** logging in (they may be set on the login page itself). Log in. Record the same cookie values **after** login.
-
-Did the session token change? If the same token is valid both before and after authentication, the application is vulnerable to session fixation. Document what you find.
+Document whether any server-side check is performed to verify the requesting user owns the record.
 
 ---
 
-### 5. Script a Brute Force Attack
+### 3. Exploit Broken Access Control on Admin Routes
 
-**What the requests library does and how to detect a successful login:**
-The `requests` library lets Python make HTTP requests programmatically. `requests.post(url, data=...)` sends an HTTP POST request with form data — exactly what your browser does when you submit the login form. `allow_redirects=False` is critical here: on a successful login, the server returns HTTP 302 (redirect to the home page). With `allow_redirects=False`, Python stops at the redirect and does not follow it, so you can inspect the status code directly. A 302 means "login succeeded and you are being redirected." A 200 means "the login form was returned again" — i.e., the login failed. This distinction is how the script knows when it has found the correct password.
+While logged in as `jsmith` (a student), directly navigate to:
+```
+http://localhost/admin/users
+http://localhost/admin/grades
+http://localhost/admin/pending
+```
 
-Write a Python script using the `requests` library that:
-1. Reads a wordlist of passwords (use `labs/week-05/wordlist.txt`)
-2. POSTs to `/login` for the username `tbrown` with each password in the list
-3. Checks the response for a successful login redirect
-4. Stops and prints the password when found
+For each route, document whether access is granted and what data or actions are exposed. Note that you changed no cookies and sent no special headers — you simply navigated to a URL.
+
+---
+
+### 4. Set Up Burp Suite and Automate IDOR Enumeration
+
+**What Burp Suite is doing as a proxy and what "intercept" means:**
+Burp Suite positions itself between your browser and the server as an HTTP proxy. Your browser sends its requests to Burp, Burp forwards them to the server, receives the responses, and passes them back to your browser. This gives you full visibility into every request and response, and the ability to modify either before it reaches its destination. "Intercept mode" pauses each request, letting you read and edit it before clicking Forward to release it. HTTP History shows all captured traffic. Intruder lets you take a single captured request and replay it hundreds of times with a different value substituted in each time — this is how you will systematically enumerate IDOR targets without clicking through the browser manually for each one.
+
+**What Intruder does and what "payload positions" are:**
+Intruder is Burp's request automation tool. You mark a parameter value in the request as a "payload position" (using § markers) and provide a list of values to substitute in. Intruder then sends one request per payload value and records every response. For IDOR, you set the `student_id` as the payload position and use a sequential number list as the payload — Intruder effectively sends the same request 20 times with IDs 1 through 20, and you can scan the response lengths and status codes to identify which IDs returned real records versus errors.
+
+Configure your browser to proxy through Burp Suite, then capture and automate the grades request:
+1. Open Burp Suite → **Proxy → Intercept → Open Browser**
+2. Navigate to `http://localhost/grades?student_id=3`
+3. In Burp, find the request in **Proxy → HTTP History**
+4. Right-click → **Send to Intruder**
+5. Highlight the `student_id` value → **Add §**
+6. Under **Payloads**, select **Numbers** from 1 to 20
+7. Start the attack and review results
+
+Record every student ID that returns a valid grade record with a name attached, using the response lengths and status codes to tell real records from errors.
+
+> **Note:** Burp Suite Community Edition throttles Intruder attacks. This is expected — it will complete, just slowly.
+
+> **macOS note:** If the Burp browser cannot connect to localhost, go to **Proxy → Options** and ensure the listener is on `127.0.0.1:8080`. Then configure your system browser's proxy to `127.0.0.1:8080` under System Preferences → Network → Advanced → Proxies.
+
+> **Windows note:** Configure your browser proxy under Settings → System → Proxy → Manual proxy setup: `127.0.0.1`, port `8080`.
+
+---
+
+### 5. (Optional — 0.5 Extra Credit) Find a Second IDOR Endpoint
+
+> **This step is optional.** Completing it correctly is worth **0.5 extra credit points**.
+
+Using Burp's history or by manually browsing, identify at least one additional endpoint vulnerable to IDOR beyond `/grades`. Strong candidates: `/documents/download` (references a file path directly), `/documents/delete` (`doc_id`), and `/enrollment/drop` (`enrollment_id`). Note that `/enrollment` and `/messages` read your `user_id` from the cookie rather than a URL parameter — those are exploited by cookie tampering (Week 5), not by IDOR on a request parameter.
+
+Document: the endpoint, the vulnerable parameter, and what data or action is exposed.
+
+---
+
+### 6. Remediation — Server-Side Authorization Decorator
+
+**What a Python decorator is and why this pattern is the right approach for authorization:**
+A decorator in Python is a function that wraps another function, adding behavior before or after the wrapped function runs. `@require_role('admin')` placed above a route function means "before executing this route, run the `require_role` check — if it fails, abort; if it passes, run the route as normal." The value of this pattern is consistency: rather than copying an `if role != 'admin': abort(403)` check into every protected route (and risking forgetting it), you define the check once and apply it as a decorator. `functools.wraps(f)` copies metadata from the original function to the wrapper so Flask's routing system can still identify the function correctly. `abort(403)` immediately terminates the request with an HTTP 403 Forbidden response.
+
+Create a reusable authorization decorator in `flask/app/auth_utils.py`:
 
 ```python
-import requests
+from functools import wraps
+from flask import request, redirect, url_for, abort, session
 
-TARGET = "http://localhost/login"
-USERNAME = "tbrown"
+def require_role(*roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            role = session.get('role', 'student')
+            if role not in roles:
+                abort(403)
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 
-with open("labs/week-05/wordlist.txt") as f:
-    for line in f:
-        password = line.strip()
-        r = requests.post(TARGET, data={"username": USERNAME, "password": password},
-                          allow_redirects=False)
-        if r.status_code == 302:
-            print(f"[+] Found: {password}")
-            break
+def require_own_resource(student_id_param='student_id'):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            requested_id = request.args.get(student_id_param) or kwargs.get(student_id_param)
+            current_user_id = str(session.get('user_id'))
+            role = session.get('role', 'student')
+            if role not in ('advisor', 'admin') and str(requested_id) != current_user_id:
+                abort(403)
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 ```
-
-Save this as `brute.py` and run it:
-
-**macOS / Linux:**
-```bash
-python3 brute.py
-```
-
-**Windows:**
-```powershell
-python brute.py
-```
-
-Record: how many requests per second, how many attempts before finding the password, whether any lockout triggers.
 
 ---
 
-### 6. Remediation — Cryptographically Signed Sessions
+### 7. Apply the Decorators
 
-**What Flask's session mechanism does and why signing prevents forgery:**
-Flask's `session` object is a dictionary backed by a cryptographically signed cookie. When you write to `session['role'] = 'student'`, Flask serializes the dictionary to JSON, then signs it using HMAC-SHA256 with the application's `secret_key`. The resulting cookie looks like a long opaque string rather than readable text. When a request arrives, Flask verifies the signature before reading the session data — if anything in the cookie was modified, the signature check fails and the session is rejected. An attacker who changes `role` in the cookie now also invalidates the signature, which the server detects. `secrets.token_hex(32)` generates 32 bytes (256 bits) of cryptographically random data — sufficient that no attacker can guess or brute-force the key.
+Apply `@require_own_resource()` to the `/grades` route. Apply `@require_role('admin')` to all `/admin/*` routes. Apply `@require_role('advisor', 'admin')` to `/admin/grades`.
 
-Replace the plaintext cookies with Flask's signed session mechanism. In `__init__.py`, set a strong secret key:
-
-```python
-import secrets
-app.secret_key = secrets.token_hex(32)
-```
-
-In `auth.py`, replace `response.set_cookie(...)` with `session[...]` assignments on login, and replace the three `resp.delete_cookie(...)` calls in the logout route with `session.clear()`:
-
-```python
-from flask import session
-
-# login route — after verifying credentials:
-session['authenticated'] = username
-session['role'] = user['role']
-session['user_id'] = user['user_id']
-return redirect(url_for('home'))
-
-# logout route:
-session.clear()
-return redirect(url_for('auth.login'))
-```
-
-Update all routes that read from `request.cookies.get(...)` to read from `session.get(...)` instead. Every route file (`grades.py`, `enrollment.py`, `messages.py`, `documents.py`, `admin.py`, `chatbot.py`) and the home route in `__init__.py` must be updated — if any file still reads from cookies, those pages will redirect to login since the identity is no longer stored in cookies.
-
-Also update `templates/base.html`. The navbar reads the session directly in Jinja to decide what links to show:
-
-```html
-{% if session.get('authenticated') %}
-  Welcome, {{ session.get('authenticated') }} ({{ session.get('role', 'student') }})
-  ...
-  {% if session.get('role') in ['admin'] %}
-```
-
-Flask's `session` object is available in all Jinja templates automatically — no extra wiring needed. If you skip this step the navbar will be blank even though the routes themselves work.
-
-Rebuild and verify the session cookie is now opaque.
+Rebuild and test.
 
 ---
 
-### 7. Remediation — Session Rotation on Login
+### 8. Verify Remediation
 
-**Why clearing the session before writing to it prevents fixation:**
-`session.clear()` discards the current session and causes Flask to issue a new session ID on the next response. This must happen *after* the credentials are verified but *before* writing any authenticated data to the session. The sequence matters: verify credentials → clear old session → write new session data. If an attacker established a session token before authentication, that token is now orphaned — it points to a cleared session that has no authenticated data. The attacker must somehow intercept the new token, which is a much harder problem.
+Repeat Steps 2 and 3 against the hardened application. Confirm:
+- Accessing another student's grades returns HTTP 403
+- Accessing admin routes as a student returns HTTP 403
+- Legitimate access still works for advisors and admins
 
-Ensure a new session is generated immediately after successful authentication. Add this line in the login route immediately before writing to the session:
-
-```python
-session.clear()
-```
-
-Log the session token value before and after login and confirm they differ.
-
----
-
-### 8. Remediation — Account Lockout
-
-**What lockout prevents and what the generic error message accomplishes:**
-Without account lockout, a brute force script can attempt thousands of passwords with no consequence. The lockout mechanism imposes a rate limit by disabling the account after a threshold of failures, forcing a time cost on the attacker that makes brute force computationally impractical. The generic error message — which does not distinguish "wrong password" from "account locked" — prevents a separate information leak: if the server told an attacker "account locked," the attacker would know the account exists and that they have found the correct username. A message that looks identical whether the account exists, the password is wrong, or the account is locked denies the attacker that confirmation.
-
-Add a `failed_attempts` and `lockout_until` column to the `users` table:
-
-```sql
-ALTER TABLE users
-  ADD COLUMN failed_attempts INT NOT NULL DEFAULT 0,
-  ADD COLUMN lockout_until DATETIME NULL;
-```
-
-In the login route, add logic that:
-- Increments `failed_attempts` on each failed login
-- Sets `lockout_until = NOW() + INTERVAL 15 MINUTE` after 5 failures
-- Checks `lockout_until` before attempting authentication
-- Returns a generic error message that does not distinguish between a wrong password and a locked account
-
----
-
-### 9. Verify All Remediations
-
-Repeat Steps 2–5 against the hardened application. For each:
-- Document what happens now
-- Confirm the attack no longer succeeds
-- Paste the HTTP response or terminal output
+Paste the HTTP responses in your report.
 
 ---
 
 ## Write-Up Questions
 
-**Q1.** Describe the session fixation attack in your own words. What precondition must an attacker satisfy before the victim logs in, and what does session rotation prevent?
+**Q1.** Define Insecure Direct Object Reference (IDOR) in your own words. Why does hiding the edit button in the UI fail to prevent IDOR? What is the only reliable place to enforce access control?
 
-**Q2.** Paste your brute force script with comments. How many requests per second did it achieve? Calculate: how long would it take to brute force a 6-character lowercase alphabetic password at this rate?
+**Q2.** Explain the difference between role-based access control (RBAC) and attribute-based access control (ABAC). Which model does your remediation implement? What scenario would require ABAC instead?
 
-**Q3.** What is the difference between a signed cookie (Flask session) and an encrypted cookie? What does signing protect against, and what does it not protect against?
-
-**Q4.** Your account lockout returns the same error message whether the password is wrong or the account is locked. Why? What attack does this generic message prevent?
-
-**Q5.** Multi-factor authentication (MFA) would have made your brute force attack ineffective. At exactly what point in the authentication flow does MFA intervene? Why does MFA not eliminate the need for strong password policies and account lockout?
+**Q3.** Burp Intruder enumerated student IDs 1–20 in seconds. What would a script that automated this against a production application need to do to avoid triggering detection? What defenses would slow it down?
 
 ---
 
 ## Hacker Mindset Prompt
 
-Authentication is the front door, and attackers are patient. A committed attacker does not brute-force a live application in real time — they obtain a credential database, crack it offline, and then attempt credential stuffing across dozens of services where users likely reused the same password.
+IDOR is the simplest class of vulnerability to exploit — change a number, get someone else's data — yet it appears in major production systems continuously. Meta's 2021 data scraping incident, exposing 533 million records, was rooted in an access control failure exploitable through API enumeration.
 
 Reflect on:
 
-- **Contrarian:** The application trusts a cookie value to determine who the user is and what they are allowed to do. What is the fundamental flaw in this trust model, and how does signing correct it?
-- **Committed:** Combine bcrypt from Week 3 with account lockout this week. Describe how these two controls create a layered defense. What does each one stop that the other does not?
-- **Creative:** What is credential stuffing and why does it succeed even against applications that have never been breached themselves? What control would you add to HuskyHub to detect and block a credential stuffing campaign?
+- **Contrarian:** The application showed the correct data to the correct user in the UI. A student who only uses the UI would never notice this vulnerability. What does this say about the gap between "works correctly" and "is secure"?
+- **Committed:** A committed attacker who discovers an IDOR vulnerability does not stop at one record. Write a Python script (pseudocode is fine) that would exfiltrate the complete grade database using the IDOR you found.
+- **Creative:** IDOR becomes significantly harder to exploit if object IDs are not sequential integers. What alternative ID scheme would make enumeration impractical, and what are the tradeoffs?
