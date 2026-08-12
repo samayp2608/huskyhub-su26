@@ -14,28 +14,88 @@ This week you exploit four AI-specific vulnerabilities: direct prompt injection,
 
 ## ⚠️ Pre-Lab Setup — Run Ollama with GPU Acceleration
 
-Install or update the native Ollama application before starting. Native Ollama
-uses Metal on Apple silicon and supported GPUs on Windows and Linux. In the
-native Ollama application's environment (not the project's `.env` file), set
-`OLLAMA_HOST=0.0.0.0:11434` and then fully restart Ollama. Pull the required
-model:
+Native Ollama uses Metal on Apple silicon and supported GPUs on Windows and
+Linux. Complete the following steps before starting the lab.
+
+### 1. Install Ollama
+
+**macOS or Linux:**
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**Windows PowerShell:**
+
+```powershell
+irm https://ollama.com/install.ps1 | iex
+```
+
+Open a new terminal after installation and verify that the command is
+available:
+
+```bash
+ollama --version
+```
+
+### 2. Start the Ollama server
+
+Ollama must remain running while you use the chatbot. In one terminal window,
+start the server and allow the Flask container to reach it.
+
+**macOS or Linux:**
+
+```bash
+OLLAMA_HOST=0.0.0.0:11434 ollama serve
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:OLLAMA_HOST="0.0.0.0:11434"
+ollama serve
+```
+
+Leave this terminal open. If the command reports that port `11434` is already
+in use, Ollama may already be running. Continue to the next step; if HuskyHub
+cannot connect later, fully stop the existing Ollama process and start it again
+with the command above.
+
+### 3. Download the model
+
+Open a second terminal and pull the required model:
 
 ```bash
 ollama pull llama3.2
 ```
 
-From the repository root, start HuskyHub without the optional `ai` profile:
+Confirm that the model was installed:
+
+```bash
+ollama list
+```
+
+> The model download is approximately 2GB. Run this before lab section, not during, to avoid waiting.
+
+> You only need to run `ollama pull` once. The model is stored locally by Ollama and persists across restarts unless you remove it.
+
+### 4. Start HuskyHub
+
+In the second terminal, navigate to the repository root. Confirm that the
+project's `.env` file contains the native Ollama address:
+
+```dotenv
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+Then start HuskyHub. Do not add `--profile ai`; Ollama is already running
+separately in your first terminal.
 
 ```bash
 docker compose up -d --build
 ```
 
-> The model download is approximately 2GB. Run this before lab section, not during, to avoid waiting.
-
 > If `docker compose` is not found, try `docker-compose` (with a hyphen).
-
-> You only need to run `ollama pull` once unless the model is removed from your
-> native Ollama installation.
 
 Confirm Ollama is responsive by navigating to `/chatbot` and sending a test message. The model remains loaded for 30 minutes after a request. If a response takes longer than 60 seconds, the page displays a controlled timeout message while the rest of HuskyHub remains available.
 
@@ -89,6 +149,7 @@ docker compose logs huskyhub-ollama
 ```
 
 ---
+
 
 ## Tools
 
