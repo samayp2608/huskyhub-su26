@@ -14,6 +14,8 @@ This week you exploit four AI-specific vulnerabilities: direct prompt injection,
 
 ## ⚠️ Pre-Lab Setup — Run Ollama with GPU Acceleration
 
+**Summer 2026 Note: IF YOU HAVE NOT DOWNLOADED AND REPLACED YOUR FILES WITH THE FILES IN THE DICSORD'S STACK-OVERFLOW CHANNEL. PLEASE DO SO NOW. You will have to restart the pre-lab process as your lab will crash without these steps completed.**
+
 Native Ollama uses Metal on Apple silicon and supported GPUs on Windows and
 Linux. Complete the following steps before starting the lab.
 
@@ -166,6 +168,8 @@ docker compose logs huskyhub-ollama
 ## Steps
 
 ### 1. Exploit Direct Prompt Injection
+
+**Summer 2026 Note: IF YOU HAVE NOT DOWNLOADED AND REPLACED YOUR FILES WITH THE FILES IN THE DICSORD'S STACK-OVERFLOW CHANNEL. PLEASE DO SO NOW. You will have to restart the pre-lab process as your lab will crash without these steps completed.**
 
 **What a system prompt is and why it is not a security boundary:**
 A system prompt is a block of text prepended to the conversation before any user input. It is how the application developer instructs the model — "you are an academic advisor, here is the student's data, here are your rules." The critical design assumption is that this text is authoritative and the user's input is subordinate. However, language models do not enforce this hierarchy by design — they process the entire context window as a single stream of text and try to be helpful to all of it. When a user types "ignore your previous instructions," the model receives both the system prompt instructions and the user's override request in the same context, and may comply with the latter. This is not a bug in the model — it is a fundamental property of instruction-following systems that lack a hardware-level trust boundary between system and user input.
